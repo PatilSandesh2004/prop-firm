@@ -14,7 +14,7 @@ UPSTOX_ACCESS_TOKEN=...        # only needed if MARKET_DATA_SOURCE=UPSTOX
 UPSTOX_INSTRUMENT_KEYS=...     # SYMBOL=upstox_instrument_key pairs
 ```
 
-- `SIMULATOR` gives you deterministic fake ticks for the 5 index futures — good enough to exercise the whole buy/sell/close/P&L flow, but option contracts won't have a live premium (the simulator only prices the underlying futures/index, not options).
+- `SIMULATOR` gives you deterministic fake ticks for the 5 index futures, and derives a moving synthetic premium for every option instrument from its underlying's simulated spot (see `09_CHANGES_2026-08-24.md`) — good enough to exercise the whole buy/sell/close/P&L flow end to end, including live-updating floating P&L. It is not real options pricing (no IV/Greeks).
 - `UPSTOX` streams real index data and real option premiums, but requires a valid, unexpired Upstox access token.
 
 ---
@@ -108,6 +108,6 @@ This covers the buy → hold → close lifecycle, short-sell margin gating, cove
 ## Troubleshooting
 
 - **Ticker stuck at a fixed value with no change%:** you're likely in `SIMULATOR` mode (expected — it's deterministic fake data) or the Upstox feed hasn't ticked recently. A red dot next to a ticker symbol means that quote is flagged stale.
-- **"No live market data available to price this order" on BUY/SELL:** the instrument has no cached quote yet. In `SIMULATOR` mode this is expected for options (only the underlying futures are simulated); in `UPSTOX` mode, wait a moment after selecting the option chain/expiry for quotes to populate, or check the backend logs for feed connection errors.
+- **"No live market data available to price this order" on BUY/SELL:** the instrument has no cached quote yet. In `SIMULATOR` mode this should now only happen in the first second or two after the backend starts (before the simulation loop's first tick); in `UPSTOX` mode, wait a moment after selecting the option chain/expiry for quotes to populate, or check the backend logs for feed connection errors.
 - **"Insufficient margin to short ... units":** the account's equity is below the approximate margin requirement for that short. This is a deliberate simplification, not real exchange margin — see `06_CHANGES_AND_FIXES.md`.
 - **Docker container still ignoring your Upstox credentials:** make sure you rebuilt after pulling these changes (`docker compose up -d --build`) — the fix adds `env_file: ./.env` to the `api` service in `docker-compose.yml`.

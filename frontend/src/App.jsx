@@ -19,6 +19,7 @@ import {
   placeOrder,
   register,
   setAuthToken,
+  setOnTokenRefreshed,
 } from './services/api';
 import wsManager from './services/websocket';
 import './index.css';
@@ -205,6 +206,19 @@ function App() {
   };
 
   useEffect(() => {
+    // Keeps React's `token` state in sync when api.js silently exchanges an
+    // expired access token for a new one via the refresh token, and logs the
+    // user out if that exchange fails (refresh token itself expired/revoked).
+    setOnTokenRefreshed((result) => {
+      setToken(result ? result.access_token : '');
+      if (!result) {
+        setUser(null);
+        setAuthError('Session expired. Please login again.');
+      }
+    });
+  }, []);
+
+  useEffect(() => {
     if (!token) {
       return;
     }
@@ -212,7 +226,7 @@ function App() {
     setAuthToken(token);
     bootstrap().catch(() => {
       setAuthError('Session expired. Please login again.');
-      setAuthToken('');
+      setAuthToken('', '');
       setToken('');
       setUser(null);
     });
@@ -346,7 +360,7 @@ function App() {
       const result = authMode === 'register'
         ? await register(email, password)
         : await login(email, password);
-      setAuthToken(result.access_token);
+      setAuthToken(result.access_token, result.refresh_token);
       setToken(result.access_token);
     } catch (e) {
       setAuthError(e.response?.data?.detail || 'Login failed');

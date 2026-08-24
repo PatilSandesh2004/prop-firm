@@ -1,3 +1,4 @@
+import uuid
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,24 +7,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import AccountStatus, AccountType, Role
 from app.core.config import settings
-from app.core.security import create_access_token, get_password_hash, verify_password
-from app.db.bootstrap import ensure_seed_data
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    get_password_hash,
+    verify_password,
+)
 from app.db.database import get_db
 from app.dependencies.auth import get_current_user
 from app.models.account import Account
 from app.models.challenge import Challenge
 from app.models.rule_version import RuleVersion
 from app.models.user import User
-from app.schemas.auth import AuthUser, LoginRequest, RegisterRequest, TokenResponse
+from app.schemas.auth import AuthUser, LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
 from app.schemas.user import UserRead
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
+def _issue_tokens(user: User) -> TokenResponse:
+    return TokenResponse(
+        access_token=create_access_token(str(user.id)),
+        refresh_token=create_refresh_token(str(user.id)),
+        expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user=AuthUser(id=str(user.id), email=user.email, role=user.role.value),
+    )
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Authenticate the user or create a new trader account and return the access token."""
-    await ensure_seed_data(db)
     stmt = select(User).where(User.email == payload.email)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
@@ -31,13 +45,28 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    access_token = create_access_token(str(user.id))
+    return _issue_tokens(user)
 
-    return TokenResponse(
-        access_token=access_token,
-        expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=AuthUser(id=str(user.id), email=user.email, role=user.role.value),
-    )
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
+    """Exchange a valid refresh token for a new access/refresh token pair.
+
+    Lets the frontend keep a session alive across page reloads and past the
+    short access-token TTL without forcing the user to re-enter credentials
+    every time -- as long as the refresh token (7 days) hasn't itself expired.
+    """
+    try:
+        token_payload = decode_refresh_token(payload.refresh_token)
+        user_id = uuid.UUID(token_payload["sub"])
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token") from exc
+
+    user = await db.get(User, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    return _issue_tokens(user)
 
 
 @router.post("/register", response_model=TokenResponse)
@@ -107,12 +136,7 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     await db.commit()
     await db.refresh(user)
 
-    access_token = create_access_token(str(user.id))
-    return TokenResponse(
-        access_token=access_token,
-        expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=AuthUser(id=str(user.id), email=user.email, role=user.role.value),
-    )
+    return _issue_tokens(user)
 
 
 @router.get("/me", response_model=UserRead)

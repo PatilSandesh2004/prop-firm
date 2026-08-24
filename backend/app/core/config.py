@@ -28,6 +28,16 @@ class Settings(BaseSettings):
     # Security
     JWT_SECRET_KEY: str = "supersecretkey_change_in_production"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    JWT_REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+
+    # Comma-separated list of allowed browser origins for CORS. Defaults cover
+    # the local Vite dev server only -- set this explicitly in any deployed
+    # environment.
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    @property
+    def cors_allowed_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()]
 
     # Market Data
     MARKET_DATA_PROVIDER: str = "simulation"

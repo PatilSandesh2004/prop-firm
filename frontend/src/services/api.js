@@ -10,6 +10,10 @@ const apiClient = axios.create({
 });
 
 let authToken = localStorage.getItem('auth_token') || '';
+let refreshToken = localStorage.getItem('refresh_token') || '';
+// Called after a silent token refresh succeeds/fails so App.jsx can keep its
+// own `token` state in sync (axios has no reason to know about React state).
+let onTokenRefreshed = null;
 
 apiClient.interceptors.request.use((config) => {
   if (authToken) {
@@ -18,16 +22,68 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-export const setAuthToken = (token) => {
+// A 15-minute access token expiring mid-session is expected, not exceptional
+// -- silently exchange the refresh token for a new pair instead of forcing
+// the user back to the login screen every time it happens.
+let refreshInFlight = null;
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const original = error.config;
+    const isAuthRoute = original?.url?.includes('/auth/login') || original?.url?.includes('/auth/refresh');
+    if (error.response?.status !== 401 || isAuthRoute || original?._retried) {
+      return Promise.reject(error);
+    }
+    if (!refreshToken) {
+      return Promise.reject(error);
+    }
+
+    original._retried = true;
+    try {
+      if (!refreshInFlight) {
+        refreshInFlight = apiClient
+          .post('/auth/refresh', { refresh_token: refreshToken })
+          .finally(() => {
+            refreshInFlight = null;
+          });
+      }
+      const { data } = await refreshInFlight;
+      setAuthToken(data.access_token, data.refresh_token);
+      onTokenRefreshed?.(data);
+      original.headers.Authorization = `Bearer ${data.access_token}`;
+      return apiClient(original);
+    } catch (refreshError) {
+      setAuthToken('', '');
+      onTokenRefreshed?.(null);
+      return Promise.reject(refreshError);
+    }
+  }
+);
+
+export const setAuthToken = (token, newRefreshToken) => {
   authToken = token || '';
   if (token) {
     localStorage.setItem('auth_token', token);
   } else {
     localStorage.removeItem('auth_token');
   }
+
+  if (newRefreshToken !== undefined) {
+    refreshToken = newRefreshToken || '';
+    if (newRefreshToken) {
+      localStorage.setItem('refresh_token', newRefreshToken);
+    } else {
+      localStorage.removeItem('refresh_token');
+    }
+  }
 };
 
 export const getAuthToken = () => authToken;
+
+export const setOnTokenRefreshed = (callback) => {
+  onTokenRefreshed = callback;
+};
 
 export const login = async (email, password) => {
   const response = await apiClient.post('/auth/login', { email, password });
