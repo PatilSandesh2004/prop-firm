@@ -98,12 +98,21 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     rule_result = await db.execute(rule_stmt)
     rule = rule_result.scalar_one_or_none()
     if not rule:
+        # These must be nonzero: check_post_trade in risk/engine.py fails the
+        # account when daily_pnl < -max_daily_loss_amount or drawdown_percent
+        # >= max_drawdown_percent. At 0%, max_daily_loss_amount is 0 (any
+        # loss at all breaches it) and drawdown_percent >= 0 is trivially
+        # true even with zero drawdown -- every self-registered account was
+        # being marked FAILED on its very first post-trade check, win or
+        # lose. Match the values already used for the demo/admin-approved
+        # EVALUATION rule sets (db/bootstrap.py, api/admin.py) instead of a
+        # placeholder that made this account type impossible to actually use.
         rule = RuleVersion(
             challenge_id=challenge.id,
             account_type_scope=AccountType.EVALUATION,
-            profit_target_percent=Decimal("0.00"),
-            max_daily_loss_percent=Decimal("0.00"),
-            max_drawdown_percent=Decimal("0.00"),
+            profit_target_percent=Decimal("10.00"),
+            max_daily_loss_percent=Decimal("5.00"),
+            max_drawdown_percent=Decimal("15.00"),
             min_trading_days=0,
             funded_capital_amount=Decimal("500000.00"),
             is_active=True,

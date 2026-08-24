@@ -89,7 +89,37 @@ class OptionChainService:
         }
 
     @staticmethod
-    async def get_live_expiries(underlying: str) -> list[str]:
+    async def get_expiries(db: AsyncSession, underlying: str) -> list[str]:
+        """Return the next two option expiries for an allowed index.
+
+        Routes the same way get_option_chain does: live Upstox contracts when
+        that feed is actually configured, otherwise whatever expiries this
+        underlying's OPTION instruments carry in the DB. Without this branch,
+        this call went straight to the live Upstox SDK regardless of
+        MARKET_DATA_SOURCE, so in SIMULATOR mode -- where upstox_provider is
+        never connect()-ed and its background event loop is never set -- it
+        500'd on every call. Since the frontend fetches expiries before it
+        can request an option chain at all, that 500 meant the option chain
+        never loaded for any index in SIMULATOR mode.
+        """
+        if settings.MARKET_DATA_SOURCE == "UPSTOX" and upstox_provider.access_token:
+            return await OptionChainService._get_live_expiries(underlying)
+
+        stmt = (
+            select(Instrument.expiry_date)
+            .where(
+                Instrument.underlying == underlying,
+                Instrument.instrument_type == InstrumentType.OPTION,
+            )
+            .distinct()
+            .order_by(Instrument.expiry_date)
+        )
+        result = await db.execute(stmt)
+        expiry_dates = [row[0] for row in result.all() if row[0] is not None]
+        return [d.isoformat() for d in expiry_dates[:2]]
+
+    @staticmethod
+    async def _get_live_expiries(underlying: str) -> list[str]:
         """Return the next two live option expiries for an allowed index."""
         key = upstox_provider.instrument_key_for_underlying(underlying)
         if not key:

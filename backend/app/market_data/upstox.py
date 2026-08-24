@@ -192,7 +192,14 @@ class UpstoxMarketDataProvider(MarketDataProvider):
         configuration = upstox_client.Configuration()
         configuration.access_token = self.access_token
         api = upstox_client.OptionsApi(upstox_client.ApiClient(configuration))
-        response = await self.loop.run_in_executor(
+        # Uses the currently running loop, not self.loop -- this (and the
+        # other REST helpers below) can be called from a request handler
+        # before/without connect() ever running (e.g. connect() failed, or
+        # MARKET_DATA_SOURCE flips modes at request time), and self.loop is
+        # only ever set inside connect(). self.loop is still what backs the
+        # WebSocket callback bridge in _on_message_sync, which does need the
+        # specific app loop from connect() -- that usage is unaffected.
+        response = await asyncio.get_running_loop().run_in_executor(
             None, lambda: api.get_option_contracts(underlying_key)
         )
         payload = response.to_dict() if hasattr(response, "to_dict") else response
@@ -203,7 +210,7 @@ class UpstoxMarketDataProvider(MarketDataProvider):
         configuration = upstox_client.Configuration()
         configuration.access_token = self.access_token
         api = upstox_client.OptionsApi(upstox_client.ApiClient(configuration))
-        response = await self.loop.run_in_executor(
+        response = await asyncio.get_running_loop().run_in_executor(
             None,
             lambda: api.get_put_call_option_chain(underlying_key, expiry.isoformat()),
         )
@@ -217,7 +224,7 @@ class UpstoxMarketDataProvider(MarketDataProvider):
         configuration = upstox_client.Configuration()
         configuration.access_token = self.access_token
         api = upstox_client.MarketQuoteApi(upstox_client.ApiClient(configuration))
-        response = await self.loop.run_in_executor(
+        response = await asyncio.get_running_loop().run_in_executor(
             None,
             lambda: api.get_full_market_quote(",".join(instrument_keys), "2.0"),
         )

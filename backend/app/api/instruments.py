@@ -63,11 +63,13 @@ async def list_option_underlyings():
 
 
 @router.get("/meta/expiries")
-async def list_option_expiries(underlying: str = Query(...)):
-    """Return the next two live option expiries for an allowed index."""
+async def list_option_expiries(
+    underlying: str = Query(...), db: AsyncSession = Depends(get_db)
+):
+    """Return the next two option expiries for an allowed index."""
     if underlying not in {"NIFTY", "BANKNIFTY", "SENSEX", "FINNIFTY", "MIDCAPNIFTY"}:
         raise HTTPException(status_code=400, detail="Unsupported index")
-    return await OptionChainService.get_live_expiries(underlying)
+    return await OptionChainService.get_expiries(db, underlying)
 
 
 @router.get("/{instrument_id}", response_model=InstrumentRead)
