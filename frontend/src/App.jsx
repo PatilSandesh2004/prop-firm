@@ -292,6 +292,18 @@ function App() {
     }
     if (callInstrument?.trading_symbol) quoteSymbols.push(callInstrument.trading_symbol);
     if (putInstrument?.trading_symbol) quoteSymbols.push(putInstrument.trading_symbol);
+    // Every strike visible in the option chain table, not just the selected
+    // (default: ATM) row. The backend already receives and caches a live
+    // tick for every strike in the loaded chain (option_chain_service.py
+    // subscribes the whole expiry's contracts to the Upstox feed on load) --
+    // without this, the browser was never subscribed to the WS push for any
+    // strike but the ATM one, so every other row only ever updated on the
+    // 7s option-chain REST poll instead of in real time. That's the exact
+    // "only ATM prices update" behavior reported.
+    (optionChain?.strikes || []).forEach((row) => {
+      if (row.call?.symbol) quoteSymbols.push(row.call.symbol);
+      if (row.put?.symbol) quoteSymbols.push(row.put.symbol);
+    });
 
     wsManager.setToken(token);
     wsManager.connect();
@@ -351,7 +363,7 @@ function App() {
     return () => {
       wsManager.removeListener(onMessage);
     };
-  }, [token, selectedAccountId, selectedSymbol, futures, callInstrument, putInstrument]);
+  }, [token, selectedAccountId, selectedSymbol, futures, callInstrument, putInstrument, optionChain]);
 
   const onLogin = async () => {
     setAuthLoading(true);
