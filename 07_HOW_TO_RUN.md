@@ -14,7 +14,7 @@ UPSTOX_ACCESS_TOKEN=...        # only needed if MARKET_DATA_SOURCE=UPSTOX
 UPSTOX_INSTRUMENT_KEYS=...     # SYMBOL=upstox_instrument_key pairs
 ```
 
-- `SIMULATOR` gives you deterministic fake ticks for the 5 index futures, and derives a moving synthetic premium for every option instrument from its underlying's simulated spot (see `09_CHANGES_2026-08-24.md`) — good enough to exercise the whole buy/sell/close/P&L flow end to end, including live-updating floating P&L. It is not real options pricing (no IV/Greeks).
+- `SIMULATOR` gives you deterministic fake ticks for the 5 index futures, and derives a moving synthetic premium for every option instrument from its underlying's simulated spot (see `09_CHANGES_2026-08-27.md`) — good enough to exercise the whole buy/sell/close/P&L flow end to end, including live-updating floating P&L. It is not real options pricing (no IV/Greeks).
 - `UPSTOX` streams real index data and real option premiums, but requires a valid, unexpired Upstox access token.
 
 ---
