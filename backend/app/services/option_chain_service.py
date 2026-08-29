@@ -90,7 +90,7 @@ class OptionChainService:
 
     @staticmethod
     async def get_expiries(db: AsyncSession, underlying: str) -> list[str]:
-        """Return the next two option expiries for an allowed index.
+        """Return the next three option expiries for an allowed index.
 
         Routes the same way get_option_chain does: live Upstox contracts when
         that feed is actually configured, otherwise whatever expiries this
@@ -116,11 +116,11 @@ class OptionChainService:
         )
         result = await db.execute(stmt)
         expiry_dates = [row[0] for row in result.all() if row[0] is not None]
-        return [d.isoformat() for d in expiry_dates[:2]]
+        return [d.isoformat() for d in expiry_dates[:3]]
 
     @staticmethod
     async def _get_live_expiries(underlying: str) -> list[str]:
-        """Return the next two live option expiries for an allowed index."""
+        """Return the next three live option expiries for an allowed index."""
         key = upstox_provider.instrument_key_for_underlying(underlying)
         if not key:
             return []
@@ -132,7 +132,7 @@ class OptionChainService:
                 if item.get("expiry")
             }
         )
-        return [item.isoformat() for item in expiries[:2]]
+        return [item.isoformat() for item in expiries[:3]]
 
     @staticmethod
     async def _get_live_option_chain(

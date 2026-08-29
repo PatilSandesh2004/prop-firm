@@ -237,9 +237,12 @@ function App() {
     getExpiries(selectedUnderlying)
       .then((list) => {
         setExpiries(list);
-        if (list.length && !selectedExpiry) {
-          setSelectedExpiry(list[0]);
-        }
+        // Expiries are underlying-specific -- carrying over the previously
+        // selected expiry when switching indices sent the old underlying's
+        // expiry date to the new one (e.g. a NIFTY date requested for
+        // BANKNIFTY), which never matches any live contract, so the chain
+        // came back empty for every index except whichever loaded first.
+        setSelectedExpiry(list.length ? list[0] : '');
       })
       .catch((e) => console.error('Expiries failed', e));
   }, [selectedUnderlying]);

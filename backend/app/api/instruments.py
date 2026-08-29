@@ -66,7 +66,7 @@ async def list_option_underlyings():
 async def list_option_expiries(
     underlying: str = Query(...), db: AsyncSession = Depends(get_db)
 ):
-    """Return the next two option expiries for an allowed index."""
+    """Return the next three option expiries for an allowed index."""
     if underlying not in {"NIFTY", "BANKNIFTY", "SENSEX", "FINNIFTY", "MIDCAPNIFTY"}:
         raise HTTPException(status_code=400, detail="Unsupported index")
     return await OptionChainService.get_expiries(db, underlying)
