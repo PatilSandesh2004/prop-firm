@@ -4,7 +4,6 @@ import {
   getAccountSummary,
   getAccounts,
   getActiveInstruments,
-  getAuthToken,
   getClosedPositions,
   getDepth,
   getQuotes,
@@ -15,17 +14,10 @@ import {
   getPositions,
   getQuote,
   getTrades,
-  login,
   placeOrder,
-  register,
-  setAuthToken,
-  setOnTokenRefreshed,
 } from './services/api';
 import wsManager from './services/websocket';
 import './index.css';
-
-const DEFAULT_EMAIL = 'trader@propfirm.co';
-const DEFAULT_PASSWORD = 'Trader@123';
 
 function formatPercentage(value) {
   if (value === null || value === undefined || value === '') return '-';
@@ -56,13 +48,11 @@ function formatFreshness(quotes, nowTick) {
 }
 
 function App() {
-  const [email, setEmail] = useState(DEFAULT_EMAIL);
-  const [password, setPassword] = useState(DEFAULT_PASSWORD);
-  const [token, setToken] = useState(getAuthToken());
+  // Login has been removed for this deployment -- the app boots straight
+  // into the terminal as the single demo trading user (see
+  // backend/app/dependencies/auth.py). `user` doubles as the "bootstrap
+  // finished" readiness flag that `token` used to serve.
   const [user, setUser] = useState(null);
-  const [authError, setAuthError] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authMode, setAuthMode] = useState('login');
 
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -222,31 +212,8 @@ function App() {
   };
 
   useEffect(() => {
-    // Keeps React's `token` state in sync when api.js silently exchanges an
-    // expired access token for a new one via the refresh token, and logs the
-    // user out if that exchange fails (refresh token itself expired/revoked).
-    setOnTokenRefreshed((result) => {
-      setToken(result ? result.access_token : '');
-      if (!result) {
-        setUser(null);
-        setAuthError('Session expired. Please login again.');
-      }
-    });
+    bootstrap().catch((e) => console.error('Bootstrap failed', e));
   }, []);
-
-  useEffect(() => {
-    if (!token) {
-      return;
-    }
-
-    setAuthToken(token);
-    bootstrap().catch(() => {
-      setAuthError('Session expired. Please login again.');
-      setAuthToken('', '');
-      setToken('');
-      setUser(null);
-    });
-  }, [token]);
 
   useEffect(() => {
     if (!selectedUnderlying) return;
@@ -272,31 +239,31 @@ function App() {
   }, [selectedUnderlying]);
 
   useEffect(() => {
-    if (!selectedAccountId || !token) return;
+    if (!selectedAccountId || !user) return;
     refreshAccountData(selectedAccountId).catch((e) => console.error(e));
-  }, [selectedAccountId, token]);
+  }, [selectedAccountId, user]);
 
   useEffect(() => {
-    if (!selectedExpiry || !token) return;
+    if (!selectedExpiry || !user) return;
     // Guards against the same-commit race described above expiryOwnerRef's
     // declaration: don't fetch until selectedExpiry is confirmed to belong
     // to the currently selected underlying.
     if (expiryOwnerRef.current !== selectedUnderlying) return;
     refreshOptionChain().catch((e) => console.error(e));
-  }, [selectedUnderlying, selectedExpiry, token]);
+  }, [selectedUnderlying, selectedExpiry, user]);
 
   useEffect(() => {
-    if (!token || !futures.length) return;
+    if (!user || !futures.length) return;
     const symbols = futures.map((future) => future.trading_symbol);
     refreshWatchQuotes(symbols).catch((e) => console.error(e));
     const timer = setInterval(() => {
       refreshWatchQuotes(symbols).catch((e) => console.error(e));
     }, 3000);
     return () => clearInterval(timer);
-  }, [token, futures]);
+  }, [user, futures]);
 
   useEffect(() => {
-    if (!token || !selectedUnderlying || !selectedExpiry) return;
+    if (!user || !selectedUnderlying || !selectedExpiry) return;
     const timer = setInterval(() => {
       // Same ownership guard as the effect above -- if getExpiries is ever
       // slow enough to still be in flight when this fires, don't poll with
@@ -305,7 +272,7 @@ function App() {
       refreshOptionChain().catch((e) => console.error(e));
     }, 7000);
     return () => clearInterval(timer);
-  }, [token, selectedUnderlying, selectedExpiry]);
+  }, [user, selectedUnderlying, selectedExpiry]);
 
   useEffect(() => {
     if (atmRowRef.current) {
@@ -319,7 +286,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!token) return;
+    if (!user) return;
 
     const quoteSymbols = futures.slice(0, 20).map((f) => f.trading_symbol);
     if (selectedSymbol && !quoteSymbols.includes(selectedSymbol)) {
@@ -340,7 +307,10 @@ function App() {
       if (row.put?.symbol) quoteSymbols.push(row.put.symbol);
     });
 
-    wsManager.setToken(token);
+    // The WS endpoint doesn't actually check this value (see
+    // backend/app/api/market_data.py) -- wsManager just requires a
+    // non-empty string before it will open a connection.
+    wsManager.setToken('local');
     wsManager.connect();
     wsManager.subscribeQuotes([...new Set(quoteSymbols)]);
 
@@ -398,23 +368,7 @@ function App() {
     return () => {
       wsManager.removeListener(onMessage);
     };
-  }, [token, selectedAccountId, selectedSymbol, futures, callInstrument, putInstrument, optionChain]);
-
-  const onLogin = async () => {
-    setAuthLoading(true);
-    setAuthError('');
-    try {
-      const result = authMode === 'register'
-        ? await register(email, password)
-        : await login(email, password);
-      setAuthToken(result.access_token, result.refresh_token);
-      setToken(result.access_token);
-    } catch (e) {
-      setAuthError(e.response?.data?.detail || 'Login failed');
-    } finally {
-      setAuthLoading(false);
-    }
-  };
+  }, [user, selectedAccountId, selectedSymbol, futures, callInstrument, putInstrument, optionChain]);
 
   const submitOrder = async (instrument, side, lots = 1, orderType = 'MARKET', price = null) => {
     if (!instrument || !selectedAccountId) return;
@@ -609,32 +563,15 @@ function App() {
     );
   };
 
-  if (!token || !user) {
+  if (!user) {
+    // Login has been removed -- this only covers the brief window while the
+    // initial bootstrap() (getMe/getAccounts/getActiveInstruments) is still
+    // in flight on first load.
     return (
       <div className="auth-shell">
         <div className="auth-card">
           <h1>Indian F&O Trading Terminal</h1>
-          <p>Secure login required</p>
-          <input
-            className="auth-input"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
-          />
-          <input
-            className="auth-input"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-          />
-          <button className="primary-btn" onClick={onLogin} disabled={authLoading}>
-            {authLoading ? 'Please wait...' : authMode === 'register' ? 'Create Simulation Account' : 'Login'}
-          </button>
-          <button className="secondary-btn" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} disabled={authLoading}>
-            {authMode === 'login' ? 'Need an account? Register' : 'Already have an account? Login'}
-          </button>
-          {authError && <div className="error-text">{authError}</div>}
+          <p>Loading...</p>
         </div>
       </div>
     );
