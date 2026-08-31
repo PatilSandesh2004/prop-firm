@@ -18,6 +18,15 @@ logger = logging.getLogger(__name__)
 
 STALE_AFTER_SECONDS = 5.0
 
+# The contract master (strikes/expiries/lot sizes) for an underlying doesn't
+# change intraday, but get_option_contracts was being re-fetched from Upstox
+# on every option-chain request -- including the frontend's 7s poll -- so
+# heavier underlyings (e.g. SENSEX, with ~2500 contracts across all its
+# expiries vs. NIFTY's near-term-only weeklies) made every chain switch/
+# refresh noticeably slower than NIFTY. Caching this list removes that
+# redundant round-trip.
+OPTION_CONTRACTS_CACHE_TTL_SECONDS = 300.0
+
 
 class UpstoxMarketDataProvider(MarketDataProvider):
     def __init__(self):
@@ -34,6 +43,7 @@ class UpstoxMarketDataProvider(MarketDataProvider):
         self.instrument_keys: list[str] = []
         self.prev_close: dict[str, Decimal] = {}
         self._last_tick_at: dict[str, float] = {}
+        self._option_contracts_cache: dict[str, tuple[float, list[dict]]] = {}
         for item in settings.UPSTOX_INSTRUMENT_KEYS.split(","):
             item = item.strip()
             if not item:
@@ -188,7 +198,16 @@ class UpstoxMarketDataProvider(MarketDataProvider):
         return None
 
     async def get_option_contracts(self, underlying_key: str) -> list[dict]:
-        """Fetch live option contracts for an Upstox index underlying."""
+        """Fetch live option contracts for an Upstox index underlying.
+
+        Cached per underlying_key for OPTION_CONTRACTS_CACHE_TTL_SECONDS --
+        see the module-level comment on that constant.
+        """
+        cached = self._option_contracts_cache.get(underlying_key)
+        now = time.monotonic()
+        if cached and (now - cached[0]) < OPTION_CONTRACTS_CACHE_TTL_SECONDS:
+            return cached[1]
+
         configuration = upstox_client.Configuration()
         configuration.access_token = self.access_token
         api = upstox_client.OptionsApi(upstox_client.ApiClient(configuration))
@@ -203,7 +222,9 @@ class UpstoxMarketDataProvider(MarketDataProvider):
             None, lambda: api.get_option_contracts(underlying_key)
         )
         payload = response.to_dict() if hasattr(response, "to_dict") else response
-        return payload.get("data", []) if isinstance(payload, dict) else []
+        contracts = payload.get("data", []) if isinstance(payload, dict) else []
+        self._option_contracts_cache[underlying_key] = (now, contracts)
+        return contracts
 
     async def get_option_chain(self, underlying_key: str, expiry: date) -> list[dict]:
         """Fetch the complete live CE/PE strike matrix for an expiry."""

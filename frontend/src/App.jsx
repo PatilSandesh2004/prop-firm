@@ -234,6 +234,13 @@ function App() {
 
   useEffect(() => {
     if (!selectedUnderlying) return;
+    // Clear the expiry immediately (before the async fetch below resolves)
+    // so the option-chain effect -- which also depends on selectedUnderlying
+    // -- can't fire in between with the *previous* underlying's expiry still
+    // attached to the *new* underlying. That mismatched pair always came
+    // back empty from the live API, so every switch briefly flashed an
+    // empty chain before the corrected expiry loaded and re-fetched it.
+    setSelectedExpiry('');
     getExpiries(selectedUnderlying)
       .then((list) => {
         setExpiries(list);
