@@ -36,6 +36,15 @@ function formatPercentage(value) {
   return `${numericValue >= 0 ? '+' : ''}${numericValue.toFixed(decimals)}%`;
 }
 
+function displaySymbol(symbol) {
+  // Trading symbols like "NIFTY-FUT" are actually live index-spot quotes in
+  // this deployment (see UPSTOX_INSTRUMENT_KEYS -- they map to NSE_INDEX/
+  // BSE_INDEX keys, not futures contracts), so the "-FUT" suffix is
+  // misleading in the UI even though it's still the real key used for
+  // quote lookups and WS subscriptions everywhere else.
+  return symbol?.replace(/-FUT$/, '') ?? symbol;
+}
+
 function formatFreshness(quotes, nowTick) {
   const timestamps = Object.values(quotes)
     .map((q) => new Date(q.timestamp).getTime())
@@ -86,6 +95,13 @@ function App() {
 
   const wsRefreshLock = useRef(0);
   const atmRowRef = useRef(null);
+  // Which underlying the current selectedExpiry value has been confirmed
+  // to belong to. Needed because React runs every effect for a commit in
+  // declared order using that render's already-captured state -- clearing
+  // selectedExpiry inside the underlying-change effect doesn't stop the
+  // option-chain effect below from running in that SAME commit with the
+  // OLD (stale) selectedExpiry still attached to the NEW selectedUnderlying.
+  const expiryOwnerRef = useRef(null);
 
   const futures = useMemo(
     () => instruments.filter((i) => i.instrument_type === 'FUTURE'),
@@ -249,6 +265,7 @@ function App() {
         // expiry date to the new one (e.g. a NIFTY date requested for
         // BANKNIFTY), which never matches any live contract, so the chain
         // came back empty for every index except whichever loaded first.
+        expiryOwnerRef.current = selectedUnderlying;
         setSelectedExpiry(list.length ? list[0] : '');
       })
       .catch((e) => console.error('Expiries failed', e));
@@ -261,6 +278,10 @@ function App() {
 
   useEffect(() => {
     if (!selectedExpiry || !token) return;
+    // Guards against the same-commit race described above expiryOwnerRef's
+    // declaration: don't fetch until selectedExpiry is confirmed to belong
+    // to the currently selected underlying.
+    if (expiryOwnerRef.current !== selectedUnderlying) return;
     refreshOptionChain().catch((e) => console.error(e));
   }, [selectedUnderlying, selectedExpiry, token]);
 
@@ -277,6 +298,10 @@ function App() {
   useEffect(() => {
     if (!token || !selectedUnderlying || !selectedExpiry) return;
     const timer = setInterval(() => {
+      // Same ownership guard as the effect above -- if getExpiries is ever
+      // slow enough to still be in flight when this fires, don't poll with
+      // a not-yet-confirmed underlying/expiry pair.
+      if (expiryOwnerRef.current !== selectedUnderlying) return;
       refreshOptionChain().catch((e) => console.error(e));
     }, 7000);
     return () => clearInterval(timer);
@@ -630,7 +655,7 @@ function App() {
             return (
               <div key={symbol} className="ticker-item" title={q ? `bid ${Number(q.bid).toFixed(2)} / ask ${Number(q.ask).toFixed(2)} · vol ${q.volume} · ${q.source}` : ''}>
                 {q?.is_stale && <span className="dot bad" title="Feed hasn't ticked recently" />}
-                <span className="ticker-symbol">{symbol}</span>
+                <span className="ticker-symbol">{displaySymbol(symbol)}</span>
                 <span>{q ? Number(q.ltp).toFixed(2) : '--'}</span>
                 <span className={ch >= 0 ? 'up-text' : 'down-text'}>
                   {q ? `${ch >= 0 ? '+' : ''}${ch.toFixed(2)} (${formatPercentage(q.change_pct)})` : '--'}
@@ -665,7 +690,7 @@ function App() {
                   setSelectedUnderlying(f.underlying);
                 }}
               >
-                <div>{f.trading_symbol}</div>
+                <div>{displaySymbol(f.trading_symbol)}</div>
                 <div className={Number(q?.change || 0) >= 0 ? 'up-text' : 'down-text'}>
                   {q ? Number(q.ltp).toFixed(2) : '--'}
                 </div>

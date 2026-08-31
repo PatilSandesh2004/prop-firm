@@ -318,11 +318,17 @@ class UpstoxMarketDataProvider(MarketDataProvider):
                 if not isinstance(item, dict):
                     continue
                 actual_key = item.get("instrument_token", instrument_key)
-                close = (item.get("ohlc") or {}).get("close")
-                if close is None:
+                # `ohlc.close` here is *today's* running close (equals
+                # last_price while the market is open), not the previous
+                # trading day's close -- see the matching comment in
+                # _parse_upstox_messages. `net_change` is last_price minus
+                # the real previous close, so back it out from that instead.
+                last_price = item.get("last_price")
+                net_change = item.get("net_change")
+                if last_price is None or net_change is None:
                     continue
                 symbol = self.instrument_key_to_symbol.get(actual_key, actual_key)
-                self.prev_close[symbol] = Decimal(str(close))
+                self.prev_close[symbol] = Decimal(str(last_price)) - Decimal(str(net_change))
         except Exception as exc:
             logger.warning("Could not prime previous-close reference prices: %s", exc)
 
@@ -369,8 +375,12 @@ class UpstoxMarketDataProvider(MarketDataProvider):
 
             symbol = self.instrument_key_to_symbol.get(instrument_key, instrument_key)
 
+            # The "1d" entry in marketOHLC is *today's* running candle -- its
+            # `close` tracks the latest tick until the market actually closes,
+            # so using it as "previous close" made change/change_pct compute
+            # to ~0 all session. `ltpc.cp` is Upstox's actual previous-trading-
+            # day close and is what change should be measured against.
             day_open = day_high = day_low = None
-            prev_close = self.prev_close.get(symbol)
             for entry in (full_feed.get("marketOHLC") or {}).get("ohlc", []):
                 if not isinstance(entry, dict):
                     continue
@@ -380,9 +390,9 @@ class UpstoxMarketDataProvider(MarketDataProvider):
                 day_open = Decimal(str(entry["open"])) if entry.get("open") is not None else day_open
                 day_high = Decimal(str(entry["high"])) if entry.get("high") is not None else day_high
                 day_low = Decimal(str(entry["low"])) if entry.get("low") is not None else day_low
-                if entry.get("close") is not None:
-                    prev_close = Decimal(str(entry["close"]))
                 break
+            cp = ltpc.get("cp")
+            prev_close = Decimal(str(cp)) if cp is not None else self.prev_close.get(symbol)
             if prev_close is not None:
                 self.prev_close[symbol] = prev_close
             change = (ltp - prev_close) if prev_close else None
