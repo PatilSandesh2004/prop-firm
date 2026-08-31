@@ -258,14 +258,29 @@ class UpstoxMarketDataProvider(MarketDataProvider):
         }
 
     async def _poll_ltp_fallback(self):
-        """Poll Upstox LTP snapshots when the WebSocket has not delivered a feed."""
+        """Poll Upstox LTP snapshots for symbols the WebSocket hasn't ticked recently.
+
+        This used to poll every configured symbol unconditionally on every
+        2s cycle regardless of whether the WebSocket was already delivering
+        live ticks for it -- 5 extra REST calls every 2 seconds, forever,
+        which was enough on its own to burn through Upstox's rate limit and
+        start seeing 429s even while the WS feed was perfectly healthy.
+        Skipping symbols that ticked recently (the same STALE_AFTER_SECONDS
+        threshold _mark_stale_if_overdue already uses) makes this a genuine
+        fallback instead of a second, redundant feed running at full speed
+        at all times.
+        """
         configuration = upstox_client.Configuration()
         configuration.access_token = self.access_token
         api = upstox_client.MarketQuoteApi(upstox_client.ApiClient(configuration))
         while self.is_running and self.instrument_keys:
             try:
+                now = time.monotonic()
                 for requested_key in self.instrument_keys:
                     symbol = self.instrument_key_to_symbol.get(requested_key, requested_key)
+                    last_tick = self._last_tick_at.get(symbol)
+                    if last_tick is not None and (now - last_tick) < STALE_AFTER_SECONDS:
+                        continue
                     try:
                         response = await self.loop.run_in_executor(
                             None,
