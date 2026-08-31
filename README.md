@@ -55,7 +55,14 @@ prop-trading-platform/
 Getting the codebase running locally is incredibly easy because the entire stack is containerized.
 
 ### 1. Configure the Environment
-Ensure you have a `.env` file in the root directory. 
+Copy the example file to create your own `.env` in the root directory:
+```bash
+cp .env.example .env
+```
+The defaults in it are enough to run locally with simulated market data --
+you only need to fill in the `UPSTOX_*` values if you want live NSE/BSE
+data instead. (`.env` is gitignored on purpose, since it can hold real
+broker credentials -- every fresh clone starts without one.)
 
 ```env
 APP_ENV=development

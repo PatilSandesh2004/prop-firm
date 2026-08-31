@@ -12,7 +12,16 @@ services:
       # Picks up MARKET_DATA_SOURCE/UPSTOX_* (and anything else) from the root
       # .env. Without this, the container never sees those variables and
       # silently falls back to the SIMULATOR feed regardless of configuration.
-      - ./.env
+      #
+      # `required: false` matters because .env is gitignored -- a fresh clone
+      # has no such file. Without this, Compose refuses to start the api
+      # service at all (every request, including login, then fails with a
+      # generic network error that has nothing to do with login itself).
+      # All settings this file would supply already have safe defaults in
+      # app/core/config.py (MARKET_DATA_SOURCE=SIMULATOR, demo bootstrap on),
+      # so the app runs fine without it.
+      - path: ./.env
+        required: false
     environment:
       - APP_ENV=development
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/proptrading
