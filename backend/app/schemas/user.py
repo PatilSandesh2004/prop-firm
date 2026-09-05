@@ -10,6 +10,8 @@ from .common import TimestampSchema
 class UserBase(BaseModel):
     email: EmailStr
     role: Role = Role.TRADER
+    full_name: str | None = None
+    phone: str | None = None
 
 
 class UserCreate(UserBase):

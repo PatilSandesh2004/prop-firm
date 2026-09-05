@@ -31,7 +31,13 @@ def _issue_tokens(user: User) -> TokenResponse:
         access_token=create_access_token(str(user.id)),
         refresh_token=create_refresh_token(str(user.id)),
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=AuthUser(id=str(user.id), email=user.email, role=user.role.value),
+        user=AuthUser(
+            id=str(user.id),
+            email=user.email,
+            role=user.role.value,
+            full_name=user.full_name,
+            phone=user.phone,
+        ),
     )
 
 
@@ -123,6 +129,8 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     user = User(
         email=payload.email,
         password_hash=get_password_hash(payload.password),
+        full_name=payload.full_name,
+        phone=payload.phone,
         role=Role.TRADER,
         is_active=True,
     )

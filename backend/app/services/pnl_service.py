@@ -29,9 +29,11 @@ class PnLEngine:
 
         total_floating_pnl = Decimal("0.00")
 
+        symbols = [inst.trading_symbol for _, inst in positions_with_instruments]
+        quotes_map = await MarketDataCache.get_quotes_many(symbols)
+
         for position, instrument in positions_with_instruments:
-            # Fetch latest quote
-            quote = await MarketDataCache.get_quote(instrument.trading_symbol)
+            quote = quotes_map.get(instrument.trading_symbol)
             if not quote:
                 logger.warning(
                     f"No market data found for {instrument.trading_symbol} during MTM"

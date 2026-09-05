@@ -86,3 +86,31 @@ Root causes were found by reading the actual code (not the aspirational `01`-`05
 
 - **No account/order ownership enforcement.** Any authenticated user can currently query or trade on any `account_id` by guessing/knowing its UUID — this predates these changes and is a larger auth/authorization effort (`get_current_user` exists but isn't wired into the account/order routers).
 - The short-sell margin figure is a deliberate simplification, not real NSE SPAN+exposure margin (no such live API is available to this platform).
+
+---
+
+## Session Changes — 2026-09-05 (Production-Level Terminal & Engine Fixes)
+
+1. **Symbol Formatting & Index Clean-up**:
+   - Enhanced `displaySymbol` in `TerminalApp.jsx` to strip `-FUT`, `_FUT`, or ` FUT` suffixes across Top Bar tickers, Market Watch, dropdowns, order tickets, and positions/orders tables.
+   - Indices display with clean standard names: `NIFTY`, `BANKNIFTY`, `SENSEX`, `FINNIFTY`, `MIDCAPNIFTY`.
+
+2. **Dynamic Top Bar Metric Calculations**:
+   - Fixed static `+0.00 (0.00%)` display by dynamically computing `change` and `change_pct` relative to previous close or session open reference prices.
+
+3. **Batch Cache & Option Chain Performance Acceleration**:
+   - Added `set_quotes_many` and `get_quotes_many` to `MarketDataCache` (`redis_cache.py`) using Redis `MGET` / `MSET` and dictionary batch reads.
+   - Refactored `OptionChainService` (`option_chain_service.py`) to fetch and cache all option strike quotes in a single batch operation instead of sequential network calls.
+   - Accelerated PnL Engine (`pnl_service.py`) and Account Query Service (`account_service.py`) MTM calculations.
+
+4. **Pre-Trade Funds & Margin Requirement Verification**:
+   - Added dedicated **Funds & Margin Card** inside the Order Ticket modal in `TerminalApp.jsx` and `index.css`:
+     - Displays **Required Funds / Margin** vs **Available Margin**.
+     - Displays **Order Lot Count & Total Quantity** (e.g. `1 Lot (50 Qty)`).
+     - Features live visual status badges (`✓ Sufficient Margin` / `⚠ Insufficient Funds`).
+
+5. **Automated Testing & Build Verification**:
+   - Created `test_batch_cache.py` to verify batch cache performance.
+   - All **30/30 unit tests passed** in **6.16 seconds** (`python -m pytest backend/tests/ -v`).
+   - Frontend `npm run build` compiled clean with 0 errors.
+

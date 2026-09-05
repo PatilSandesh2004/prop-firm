@@ -1,6 +1,14 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8001/api/v1';
+export const ACCESS_TOKEN_STORAGE_KEY = 'propfirm.access_token';
+
+const getApiBaseUrl = () => {
+  const host = typeof window !== 'undefined' ? window.location.hostname || 'localhost' : 'localhost';
+  const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
+  return `${protocol}//${host}:8001/api/v1`;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -9,11 +17,19 @@ const apiClient = axios.create({
   },
 });
 
-// Login has been removed for this deployment -- the backend no longer
-// requires a bearer token at all (every request resolves to the single
-// demo trading user, see backend/app/dependencies/auth.py), so this
-// client sends no Authorization header and needs no token/refresh
-// machinery. getMe() still works -- it just returns that fixed user now.
+// Attach the signed-in user's access token when one is present. With no
+// token (nobody has logged in yet), requests go out with no Authorization
+// header at all -- the backend then resolves them to the single demo
+// trading user (see backend/app/dependencies/auth.py), so the terminal
+// still works with zero login for local/dev use.
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 export const getMe = async () => {
   const response = await apiClient.get('/auth/me');
   return response.data;
@@ -79,6 +95,13 @@ export const placeOrder = async (accountId, orderData) => {
 
 export const getOrders = async (accountId) => {
   const response = await apiClient.get(`/accounts/${accountId}/orders`);
+  return response.data;
+};
+
+export const getMarginPreview = async (accountId, { instrumentId, side, quantity }) => {
+  const response = await apiClient.get(`/accounts/${accountId}/orders/margin-preview`, {
+    params: { instrument_id: instrumentId, side, quantity },
+  });
   return response.data;
 };
 

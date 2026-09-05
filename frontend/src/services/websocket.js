@@ -21,7 +21,9 @@ class TerminalWebSocket {
       return;
     }
 
-    this.ws = new WebSocket(`ws://localhost:8001/ws/market-data?token=${encodeURIComponent(this.token)}`);
+    const host = typeof window !== 'undefined' ? window.location.hostname || 'localhost' : 'localhost';
+    const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    this.ws = new WebSocket(`${protocol}//${host}:8001/ws/market-data?token=${encodeURIComponent(this.token)}`);
 
     this.ws.onopen = () => {
       this.connected = true;

@@ -151,6 +151,18 @@ Defines the backend REST contract required by the locked trading terminal while 
 - New.
 - Only for supported provider/order states.
 
+### GET `/accounts/{account_id}/orders/margin-preview`
+- Auth required
+- Query parameters:
+  - `instrument_id: UUID`
+  - `side: "BUY" | "SELL"`
+  - `quantity: integer`
+- Response shape:
+  - `required_amount: number`
+  - `available_amount: number`
+  - `sufficient: boolean`
+  - `ltp: number | null`
+
 ### GET `/orders/capabilities`
 - New.
 - Returns supported order types per execution mode/provider and current market session constraints.

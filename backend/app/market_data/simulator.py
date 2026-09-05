@@ -37,7 +37,13 @@ class SimulatedMarketDataProvider(MarketDataProvider):
             "FINNIFTY-FUT": Decimal("23500.00"),
             "MIDCAPNIFTY-FUT": Decimal("12500.00"),
         }
-        self.prev_close = dict(self.market_state)
+        self.prev_close = {
+            "NIFTY-FUT": Decimal("24880.20"),
+            "BANKNIFTY-FUT": Decimal("51705.00"),
+            "SENSEX-FUT": Decimal("81650.00"),
+            "FINNIFTY-FUT": Decimal("23410.00"),
+            "MIDCAPNIFTY-FUT": Decimal("12420.00"),
+        }
         self.day_open = dict(self.market_state)
         self.day_high = dict(self.market_state)
         self.day_low = dict(self.market_state)

@@ -39,10 +39,17 @@ prop-trading-platform/
 │   ├── scripts/           # Testing & seeding scripts
 │   ├── Dockerfile         # Backend container definition
 │   └── pyproject.toml     # Python dependencies
-├── frontend/              # Vite React Web Application
-│   ├── src/               # React components & pages
-│   │   ├── components/    # Watchlist, Orders, Positions UI
-│   │   └── services/      # Axios API & Native WebSocket clients
+├── frontend/              # Single Vite React Web Application
+│   ├── src/
+│   │   ├── App.jsx         # Top-level router: marketing shell <-> terminal
+│   │   ├── context/        # AuthContext (login/register/session),
+│   │   │                   #   NavigationContext (in-app "launch terminal" CTAs)
+│   │   ├── services/       # Axios API client (attaches the bearer token) &
+│   │   │                   #   native WebSocket client -- shared by both halves below
+│   │   ├── marketing/       # Public site: Home/Challenges/Rules/Platform/
+│   │   │                    #   HowItWorks/About/FAQ pages, Navbar, Footer, AuthModal
+│   │   └── terminal/        # The trading terminal (TerminalApp.jsx):
+│   │                        #   Watchlist, option chain, orders, positions, P&L
 │   └── vite.config.js     # Vite configuration
 ├── docker-compose.yml     # Orchestrates Postgres, Redis, API, and Frontend
 └── .env                   # Environment variables (Credentials)

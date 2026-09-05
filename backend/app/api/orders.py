@@ -1,17 +1,20 @@
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.constants import Role
+from app.core.constants import InstrumentType, OrderSide, Role
 from app.db.database import get_db
 from app.dependencies.auth import get_current_user
+from app.market_data.redis_cache import MarketDataCache
 from app.models.account import Account
+from app.models.instrument import Instrument
 from app.models.order import Order
 from app.models.user import User
-from app.schemas.order import OrderCreate, OrderRead
+from app.risk.engine import risk_engine
+from app.schemas.order import MarginPreviewRead, OrderCreate, OrderRead
 from app.services.order_service import OrderService
 
 router = APIRouter(prefix="/accounts/{account_id}/orders", tags=["Orders"])
@@ -44,6 +47,42 @@ async def place_order(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Order execution failed: {exc}") from exc
+
+
+@router.get("/margin-preview", response_model=MarginPreviewRead)
+async def margin_preview(
+    account_id: uuid.UUID,
+    instrument_id: uuid.UUID = Query(...),
+    side: OrderSide = Query(...),
+    quantity: int = Query(..., gt=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Preview the required/available margin for a not-yet-placed order.
+
+    Uses the exact same computation check_pre_trade enforces at submit time
+    (RiskEngine.compute_margin_requirement), so what the order ticket shows
+    the trader beforehand always matches what would actually be rejected.
+    """
+    await _assert_account_owner(db, account_id, current_user)
+
+    account = await db.get(Account, account_id)
+    instrument = await db.get(Instrument, instrument_id)
+    if not instrument or instrument.instrument_type != InstrumentType.OPTION:
+        raise HTTPException(status_code=404, detail="Instrument not found")
+
+    quote = await MarketDataCache.get_quote(instrument.trading_symbol)
+    quote_ltp = quote.ltp if quote else None
+
+    required, available, _ = await risk_engine.compute_margin_requirement(
+        db, account, instrument, side, quantity, quote_ltp
+    )
+    return MarginPreviewRead(
+        required_amount=required,
+        available_amount=available,
+        sufficient=available >= required,
+        ltp=quote_ltp,
+    )
 
 
 @router.get("", response_model=List[OrderRead])

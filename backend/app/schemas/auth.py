@@ -9,12 +9,16 @@ class LoginRequest(BaseModel):
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
+    full_name: str | None = None
+    phone: str | None = None
 
 
 class AuthUser(BaseModel):
     id: str
     email: EmailStr
     role: str
+    full_name: str | None = None
+    phone: str | None = None
 
 
 class TokenResponse(BaseModel):

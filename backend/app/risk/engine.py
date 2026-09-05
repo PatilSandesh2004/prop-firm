@@ -18,6 +18,50 @@ logger = logging.getLogger(__name__)
 
 class RiskEngine:
     @staticmethod
+    async def compute_margin_requirement(
+        db: AsyncSession,
+        account: Account,
+        instrument: Instrument,
+        side: OrderSide,
+        quantity: int,
+        quote_ltp: Optional[Decimal],
+    ) -> Tuple[Decimal, Decimal, int]:
+        """
+        Return (required_amount, available_amount, opening_short_qty) for a
+        proposed (not yet placed) order. Shared by check_pre_trade (the actual
+        gate) and the margin-preview endpoint the order ticket calls before
+        submit, so the number shown to the trader always matches what would
+        actually be enforced -- there is exactly one place this math lives.
+        """
+        stmt = select(Position).where(
+            Position.account_id == account.id,
+            Position.instrument_id == instrument.id,
+        )
+        position = (await db.execute(stmt)).scalar_one_or_none()
+        held_long = position.net_quantity if position and position.net_quantity > 0 else 0
+
+        invested_long, margin_used = await AccountQueryService.compute_open_exposure(
+            db, account.id
+        )
+
+        if side == OrderSide.BUY:
+            required = (
+                Decimal(quantity) * quote_ltp if quote_ltp is not None else Decimal("0.00")
+            )
+            available = account.equity - invested_long
+            return required, available, 0
+
+        # SELL: any quantity beyond what's currently held long opens/increases a short.
+        opening_short_qty = max(0, quantity - held_long)
+        required = (
+            AccountQueryService.margin_for_lots(instrument, opening_short_qty)
+            if opening_short_qty > 0
+            else Decimal("0.00")
+        )
+        available = account.equity - margin_used
+        return required, available, opening_short_qty
+
+    @staticmethod
     async def check_pre_trade(
         db: AsyncSession,
         account: Account,
@@ -36,39 +80,23 @@ class RiskEngine:
         if quote_ltp is None:
             return False, "No live market data available to price this order"
 
-        stmt = select(Position).where(
-            Position.account_id == account.id,
-            Position.instrument_id == instrument.id,
-        )
-        position = (await db.execute(stmt)).scalar_one_or_none()
-        held_long = position.net_quantity if position and position.net_quantity > 0 else 0
-
-        invested_long, margin_used = await AccountQueryService.compute_open_exposure(
-            db, account.id
+        required, available, opening_short_qty = await RiskEngine.compute_margin_requirement(
+            db, account, instrument, order.side, order.quantity, quote_ltp
         )
 
         if order.side == OrderSide.BUY:
-            cost = Decimal(order.quantity) * quote_ltp
-            available = account.equity - invested_long
-            if available < cost:
+            if available < required:
                 return False, (
-                    f"Insufficient funds: order requires approx {cost:.2f}, "
+                    f"Insufficient funds: order requires approx {required:.2f}, "
                     f"available {available:.2f}"
                 )
             return True, "Pre-trade checks passed"
 
-        # SELL: any quantity beyond what's currently held long opens/increases a short.
-        opening_short_qty = max(0, order.quantity - held_long)
-        if opening_short_qty > 0:
-            required_margin = AccountQueryService.margin_for_lots(
-                instrument, opening_short_qty
+        if opening_short_qty > 0 and available < required:
+            return False, (
+                f"Insufficient margin to short {opening_short_qty} units: "
+                f"requires approx {required:.2f}, available {available:.2f}"
             )
-            available = account.equity - margin_used
-            if available < required_margin:
-                return False, (
-                    f"Insufficient margin to short {opening_short_qty} units: "
-                    f"requires approx {required_margin:.2f}, available {available:.2f}"
-                )
 
         return True, "Pre-trade checks passed"
 

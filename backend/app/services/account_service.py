@@ -30,11 +30,14 @@ class AccountQueryService:
         current_value = Decimal("0.00")
         unrealized_pnl = Decimal("0.00")
 
+        symbols = [inst.trading_symbol for _, inst in rows]
+        quotes_map = await MarketDataCache.get_quotes_many(symbols)
+
         for position, instrument in rows:
             qty_abs = abs(position.net_quantity)
             invested_value += Decimal(str(qty_abs)) * position.average_entry_price
 
-            quote = await MarketDataCache.get_quote(instrument.trading_symbol)
+            quote = quotes_map.get(instrument.trading_symbol)
             if quote:
                 ltp = quote.ltp
                 current_value += Decimal(str(qty_abs)) * ltp
@@ -68,6 +71,9 @@ class AccountQueryService:
         result = await db.execute(stmt)
         rows = result.all()
 
+        symbols = [inst.trading_symbol for _, inst in rows]
+        quotes_map = await MarketDataCache.get_quotes_many(symbols)
+
         response: List[PositionTerminalRead] = []
         for position, instrument in rows:
             qty_abs = abs(position.net_quantity)
@@ -77,7 +83,7 @@ class AccountQueryService:
                 else "SHORT" if position.net_quantity < 0 else "FLAT"
             )
 
-            quote = await MarketDataCache.get_quote(instrument.trading_symbol)
+            quote = quotes_map.get(instrument.trading_symbol)
             ltp = quote.ltp if quote else None
 
             invested_value = Decimal(str(qty_abs)) * position.average_entry_price

@@ -44,8 +44,11 @@ class OptionChainService:
             if fut_quote:
                 spot_price = fut_quote.ltp
 
+        symbols = [inst.trading_symbol for inst in instruments]
+        quotes_map = await MarketDataCache.get_quotes_many(symbols)
+
         for instrument in instruments:
-            quote = await MarketDataCache.get_quote(instrument.trading_symbol)
+            quote = quotes_map.get(instrument.trading_symbol)
             change = quote.change if quote else None
             change_pct = quote.change_pct if quote else None
             if quote and change is None and quote.prev_close:
@@ -90,18 +93,7 @@ class OptionChainService:
 
     @staticmethod
     async def get_expiries(db: AsyncSession, underlying: str) -> list[str]:
-        """Return the next three option expiries for an allowed index.
-
-        Routes the same way get_option_chain does: live Upstox contracts when
-        that feed is actually configured, otherwise whatever expiries this
-        underlying's OPTION instruments carry in the DB. Without this branch,
-        this call went straight to the live Upstox SDK regardless of
-        MARKET_DATA_SOURCE, so in SIMULATOR mode -- where upstox_provider is
-        never connect()-ed and its background event loop is never set -- it
-        500'd on every call. Since the frontend fetches expiries before it
-        can request an option chain at all, that 500 meant the option chain
-        never loaded for any index in SIMULATOR mode.
-        """
+        """Return the next three option expiries for an allowed index."""
         if settings.MARKET_DATA_SOURCE == "UPSTOX" and upstox_provider.access_token:
             return await OptionChainService._get_live_expiries(underlying)
 
@@ -173,6 +165,9 @@ class OptionChainService:
             item.broker_instrument_token: item for item in existing_result.scalars().all()
         }
 
+        quotes_to_cache = []
+        from app.schemas.market_data import DepthLevel, MarketDepth, Quote
+
         for row in live_rows:
             strike = str(row.get("strike_price"))
             for option_type, field in ((OptionType.CE, "call_options"), (OptionType.PE, "put_options")):
@@ -187,7 +182,29 @@ class OptionChainService:
                     db.add(instrument)
                     instruments_by_key[broker_key] = instrument
                 market_data = option.get("market_data") or {}
-                await OptionChainService._cache_option_chain_quote(instrument, market_data)
+                if market_data.get("ltp") is not None:
+                    timestamp = datetime.now().astimezone()
+                    ltp = Decimal(str(market_data["ltp"]))
+                    bid = Decimal(str(market_data.get("bid_price", ltp)))
+                    ask = Decimal(str(market_data.get("ask_price", ltp)))
+                    quotes_to_cache.append(
+                        Quote(
+                            symbol=instrument.trading_symbol,
+                            ltp=ltp,
+                            bid=bid,
+                            ask=ask,
+                            volume=int(market_data.get("volume") or 0),
+                            open_interest=int(market_data.get("oi") or 0),
+                            depth=MarketDepth(
+                                symbol=instrument.trading_symbol,
+                                bids=[DepthLevel(price=bid, quantity=int(market_data.get("bid_qty") or 0))],
+                                asks=[DepthLevel(price=ask, quantity=int(market_data.get("ask_qty") or 0))],
+                                timestamp=timestamp,
+                            ),
+                            timestamp=timestamp,
+                            source="UPSTOX_OPTION_CHAIN",
+                        )
+                    )
                 greeks = option.get("option_greeks") or {}
                 chain_item = {
                     "instrument_id": str(instrument.id),
@@ -209,7 +226,11 @@ class OptionChainService:
                 }
                 strikes[strike]["call" if option_type == OptionType.CE else "put"] = chain_item
 
+        if quotes_to_cache:
+            await MarketDataCache.set_quotes_many(quotes_to_cache)
+
         await db.commit()
+
         return {
             "underlying": underlying,
             "expiry": expiry.isoformat(),

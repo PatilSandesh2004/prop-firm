@@ -28,7 +28,7 @@ This is the one section that isn't a coding task, and it's the one I'd act on fi
 
 2. **Account/order ownership isolation.** Covered in the earlier improvements list, but it matters more now: `GET /accounts` returns every user's accounts with no filtering, and every `/accounts/{id}/...` route trusts the URL with no check that the account belongs to the caller (`get_current_user` exists in `dependencies/auth.py` but isn't wired into `api/accounts.py` or `api/orders.py`). Selling this means strangers' account data and trading state need to be provably isolated per customer — this is the difference between a bug and a data breach once you have real customers.
 
-3. **No customer-facing purchase UI.** The frontend (`frontend/src/App.jsx`) only has the trading terminal behind a login wall — there's no package-selection/checkout screen, no purchase-history page, and no "your account is pending activation" state. Right now, buying a challenge is a backend API call plus a WhatsApp message; a paying customer needs a UI for all of it.
+3. **No customer-facing purchase UI.** `frontend/src/marketing/` (the public site, merged in from a separate marketing-site build on 2026-09-01 — see `10_CHANGES_2026-09-01.md`) now has real login/register (`frontend/src/context/AuthContext.jsx` against `POST /auth/login` / `/auth/register`) and a `ChallengesPage` describing the packages, but registering only ever creates the same generic free EVALUATION account — there's still no package-selection/checkout screen wired to `POST /challenges/purchase`, no purchase-history page, and no "your account is pending activation" state. Buying a challenge is still a backend API call plus a WhatsApp message; a paying customer needs a UI for all of it.
 
 ---
 

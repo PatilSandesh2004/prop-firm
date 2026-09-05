@@ -356,9 +356,10 @@ class UpstoxMarketDataProvider(MarketDataProvider):
             asks=[DepthLevel(price=ltp, quantity=100000)],
             timestamp=datetime.now(timezone.utc),
         )
-        prev_close = self.prev_close.get(symbol)
-        change = (ltp - prev_close) if prev_close else None
-        change_pct = (change / prev_close * 100) if prev_close and change is not None else None
+        prev_close = self.prev_close.get(symbol) or ltp
+        self.prev_close[symbol] = prev_close
+        change = (ltp - prev_close) if prev_close else Decimal("0.00")
+        change_pct = (change / prev_close * 100) if prev_close and prev_close != 0 else Decimal("0.00")
         return Quote(
             symbol=symbol,
             ltp=ltp,
@@ -408,10 +409,13 @@ class UpstoxMarketDataProvider(MarketDataProvider):
                 break
             cp = ltpc.get("cp")
             prev_close = Decimal(str(cp)) if cp is not None else self.prev_close.get(symbol)
-            if prev_close is not None:
-                self.prev_close[symbol] = prev_close
-            change = (ltp - prev_close) if prev_close else None
-            change_pct = (change / prev_close * 100) if prev_close and change is not None else None
+            if prev_close is None:
+                prev_close = day_open
+            if prev_close is None:
+                prev_close = ltp
+            self.prev_close[symbol] = prev_close
+            change = (ltp - prev_close) if prev_close else Decimal("0.00")
+            change_pct = (change / prev_close * 100) if prev_close and prev_close != 0 else Decimal("0.00")
 
             level_data = full_feed.get("marketLevel", {}).get("bidAskQuote", [])
             depth_data = {

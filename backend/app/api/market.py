@@ -27,12 +27,11 @@ async def get_quote(symbol: str = Query(..., description="Trading symbol")):
 async def get_quotes(symbols: str = Query(..., description="Comma-separated trading symbols")):
     """Return the latest quotes for the requested market-watch symbols."""
     requested = [item.strip() for item in symbols.split(",") if item.strip()]
-    quotes = []
-    for symbol in requested:
-        quote = await MarketDataCache.get_quote(symbol)
-        if quote:
-            quotes.append(quote)
-    return quotes
+    if not requested:
+        return []
+    quotes_dict = await MarketDataCache.get_quotes_many(requested)
+    return [quotes_dict[s] for s in requested if s in quotes_dict]
+
 
 
 @router.get("/depth", response_model=MarketDepth)

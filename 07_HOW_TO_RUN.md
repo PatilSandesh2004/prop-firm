@@ -74,41 +74,61 @@ Open the URL Vite prints (default **`http://localhost:5173`**). It talks to the 
 
 ## 3. Log in
 
-A demo account is auto-created on first login/register:
+Opening `http://localhost:5173` now lands on the **marketing site** (Home, Challenges, Rules, Platform, How It Works, About, FAQ) — not the trading terminal directly. Click **TRADER ROOM** (or any "OPEN TRADING SIMULATOR" button) in the nav or on a page:
+
+- If you're signed in, it switches straight to the terminal.
+- If you're not, it opens the sign-in/register modal first.
+
+A demo account is auto-created on first backend startup:
 
 - **Email:** `demo@propfirm.in`
 - **Password:** `Demo@123`
 
-(Configurable via `DEMO_TRADER_EMAIL` / `DEMO_TRADER_PASSWORD` in `.env`.) It's seeded with a ₹50,000 EVALUATION account and the standard NIFTY/BANKNIFTY/SENSEX/FINNIFTY/MIDCAPNIFTY futures + a NIFTY option chain.
+(Configurable via `DEMO_TRADER_EMAIL` / `DEMO_TRADER_PASSWORD` in `.env`.) It's seeded with a ₹50,000 EVALUATION account and the standard NIFTY/BANKNIFTY/SENSEX/FINNIFTY/MIDCAPNIFTY futures + a NIFTY option chain. Sign in with it, or register a brand-new account through the modal — registering creates a real `User` row and its own fresh ₹5,00,000 EVALUATION account, isolated from every other user's.
+
+You can also skip the login screen entirely and hit `http://localhost:5173/#terminal` (or just the API directly) with no token at all — every request with no `Authorization` header still resolves to the demo user, same zero-friction behavior as before login was reintroduced. This is only a convenience for local/dev use: a request that *does* carry a bearer token is authenticated for real, and a bad/expired token is rejected (401), never silently downgraded to the demo user.
 
 ---
 
 ## 4. Try the trading flow
 
-1. Pick an expiry/strike in the **Option Chain & Depth** panel and click a CALL or PUT price — this opens the order ticket.
-2. Use the **BUY/SELL** toggle, set lots, and submit. A BUY fills at the current ask; it creates a position immediately.
-3. Watch the **Positions** tab — unrealized P&L updates live as the price ticks (no manual refresh needed).
-4. Click **Close** on an open position row to flatten it at the current market price — realized P&L lands in the account summary immediately.
-5. To test short-selling: open a ticket for a contract you don't hold, choose **SELL**, and submit. If the account doesn't have enough equity for the approximate margin requirement, you'll get a clear "Insufficient margin" rejection instead of a silent failure.
+1. Select an underlying index (`NIFTY`, `BANKNIFTY`, `SENSEX`, `FINNIFTY`, `MIDCAPNIFTY`) and an expiry date in the **Option Chain & Depth** panel. Switching indices or expiries is instantaneous thanks to Redis/Memory batch quote caching (`get_quotes_many`).
+2. Click any CALL or PUT price in the table — this opens the order ticket.
+3. Review the **Funds & Margin Verification** card in the order ticket:
+   - **Required Funds / Margin**: Shows exact capital required for BUY or short SELL.
+   - **Available Margin**: Shows available account equity.
+   - **Lot & Qty breakdown**: e.g., `1 Lot (50 Qty)`.
+   - **Status Badge**: Displays `✓ Sufficient Margin` (green) or `⚠ Insufficient Funds` (red).
+4. Select BUY or SELL, set the desired lot count, and submit. Orders execute immediately.
+5. Watch the **Positions** tab — unrealized P&L updates tick-by-tick as market quotes arrive.
+6. Click **Close** on an open position row to flatten it at current market price — realized P&L updates the account summary immediately.
 
 ---
 
 ## 5. Run the backend tests
 
+Run the complete test suite (30 test cases):
+
 ```bash
-cd backend
-pip install -r requirements-dev.txt
-pytest tests/ -v
+# From repo root:
+python -m pytest backend/tests/ -v
 ```
 
-This covers the buy → hold → close lifecycle, short-sell margin gating, covering a short, and the fund-sufficiency check on BUY — no external services (Postgres/Redis/Upstox) required, it uses an in-memory SQLite database.
+This covers:
+- Buy → hold → close order lifecycle and P&L realization.
+- Short-sell margin gating and margin-preview endpoint accuracy.
+- Auth token issuance, refresh, and header validation.
+- Account ownership access controls.
+- Synthetic options pricing and instrument refresh.
+- High-performance batch quote caching (`test_batch_cache.py`).
 
 ---
 
 ## Troubleshooting
 
-- **Ticker stuck at a fixed value with no change%:** you're likely in `SIMULATOR` mode (expected — it's deterministic fake data) or the Upstox feed hasn't ticked recently. A red dot next to a ticker symbol means that quote is flagged stale.
-- **"No live market data available to price this order" on BUY/SELL:** the instrument has no cached quote yet. In `SIMULATOR` mode this should now only happen in the first second or two after the backend starts (before the simulation loop's first tick); in `UPSTOX` mode, wait a moment after selecting the option chain/expiry for quotes to populate, or check the backend logs for feed connection errors.
-- **"Insufficient margin to short ... units":** the account's equity is below the approximate margin requirement for that short. This is a deliberate simplification, not real exchange margin — see `06_CHANGES_AND_FIXES.md`.
-- **Docker container still ignoring your Upstox credentials:** make sure you rebuilt after pulling these changes (`docker compose up -d --build`) — the fix adds `env_file: ./.env` to the `api` service in `docker-compose.yml`.
-- **Frontend container crash-loops with "Cannot find native binding" / "Cannot find module './rolldown-binding...'":** stale fix — pull the latest `docker-compose.yml` and run `docker compose up -d --build frontend`. The `frontend` service used to bind-mount your host's `node_modules` straight into the Alpine (musl) container; Vite's bundler ships platform-specific native binaries, so whatever got installed on your host OS doesn't work inside the container and it never serves anything. Fixed by giving the container its own named volume for `node_modules` and having it `npm install` on startup. If you still see this after pulling, run `docker compose down -v` once to drop any old volume state, then `docker compose up -d --build` again.
+- **Ticker change values:** Top bar tickers continuously report live gain/loss figures and percentage change (`change` and `change_pct`) relative to session reference prices.
+- **Index display names:** Index futures display clean names (`NIFTY`, `BANKNIFTY`, `SENSEX`, `FINNIFTY`, `MIDCAPNIFTY`) without legacy `-FUT` / `_FUT` suffixes.
+- **"No live market data available to price this order" on BUY/SELL:** The instrument has no cached quote yet. In `SIMULATOR` mode this only occurs in the first second after boot; in `UPSTOX` mode, wait a moment after selecting an option chain for live quotes to populate.
+- **"Insufficient margin / funds":** The account's available margin is below the required capital for that order size. Adjust lot size or switch to an evaluation account with higher starting capital.
+- **Docker container still ignoring your Upstox credentials:** Make sure you rebuilt after pulling (`docker compose up -d --build`).
+

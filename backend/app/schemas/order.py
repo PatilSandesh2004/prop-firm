@@ -29,3 +29,14 @@ class OrderRead(OrderBase, TimestampSchema):
     average_price: Decimal | None = None
     rejection_reason: str | None = None
     broker_order_id: str | None = None
+
+
+class MarginPreviewRead(BaseModel):
+    """What placing this exact order would require/leave, computed with the
+    same math check_pre_trade enforces -- shown in the order ticket before
+    submit so a rejection is never a surprise."""
+
+    required_amount: Decimal
+    available_amount: Decimal
+    sufficient: bool
+    ltp: Decimal | None = None
